@@ -252,17 +252,29 @@ function webGetPendingMovements() {
       const toSupervisorEmail = (row[toSupervisorIndex] || "").toLowerCase();
 
       if (status === 'Pending') {
-        // Show if request is FOR ME or FOR one of my subordinates
-        if (toSupervisorEmail === adminEmail || mySubordinateEmails.has(toSupervisorEmail)) {
+        let canView = false;
+        
+        // --- NEW VIEWING LOGIC ---
+        if (adminRole === 'superadmin') {
+          // Superadmin can see ALL pending requests
+          canView = true;
+        } else if (toSupervisorEmail === adminEmail || mySubordinateEmails.has(toSupervisorEmail)) {
+          // Admin can only see requests for themselves or their subordinates
+          canView = true;
+        }
+        // --- END NEW LOGIC ---
+
+        if (canView) {
           results.push({
             movementID: row[headers.indexOf("MovementID")],
             userToMoveName: row[headers.indexOf("UserToMoveName")],
             fromSupervisorName: userData.emailToName[row[headers.indexOf("FromSupervisorEmail")]] || "Unknown",
-            toSupervisorName: userData.emailToName[row[headers.indexOf("ToSupervisorEmail")]] || "Unknown",
+            
+  toSupervisorName: userData.emailToName[row[headers.indexOf("ToSupervisorEmail")]] || "Unknown",
             requestedDate: convertDateToString(new Date(row[headers.indexOf("RequestTimestamp")])),
             requestedByName: userData.emailToName[row[headers.indexOf("RequestedByEmail")]] || "Unknown"
           });
-        }
+}
       }
     }
     return results;
@@ -315,11 +327,22 @@ function webApproveDenyMovement(movementID, newStatus) {
       throw new Error(`This request has already been ${requestDetails.status}.`);
     }
 
-    // Security Check: Only the receiving supervisor can action this
-    if (requestDetails.toSupervisorEmail !== adminEmail) {
-      throw new Error("Permission denied. Only the receiving supervisor can approve or deny this request.");
-    }
+    // --- MODIFIED: Security Check ---
+    // An admin can action a request if it's FOR them, or FOR a supervisor in their hierarchy.
+    
+    // Get all subordinates (direct and indirect)
+    const mySubordinateEmails = new Set(webGetAllSubordinateEmails(adminEmail));
+    
+    const isReceivingSupervisor = (requestDetails.toSupervisorEmail === adminEmail);
+    // Check if the request is for someone who reports to the admin
+    const isSupervisorOfReceiver = mySubordinateEmails.has(requestDetails.toSupervisorEmail);
 
+    if (!isReceivingSupervisor && !isSupervisorOfReceiver) {
+      // This check covers all roles. 
+      // An Admin/Superadmin can only approve for their own hierarchy (as you requested: "for a only not for b").
+      throw new Error("Permission denied. You can only approve requests for yourself or for supervisors in your reporting line.");
+    }
+    // --- END MODIFICATION ---
     // All checks passed, update the status
     moveSheet.getRange(rowToUpdate, statusIndex + 1).setValue(newStatus);
     moveSheet.getRange(rowToUpdate, actionTimeIndex + 1).setValue(new Date());
