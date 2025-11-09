@@ -2074,94 +2074,105 @@ function submitLeaveRequest(submitterEmail, request, targetUserEmail) {
   return `Leave request submitted successfully for ${requestName}.`;
 }
 
-// (No Change)
 function approveDenyRequest(adminEmail, requestID, newStatus, reason) {
-  const ss = getSpreadsheet();
-  const dbSheet = getOrCreateSheet(ss, SHEET_NAMES.database);
-  const userData = getUserDataFromDb(dbSheet);
-  const adminRole = userData.emailToRole[adminEmail] || 'agent';
-  const adminName = userData.emailToName[adminEmail] || adminEmail;
+  const ss = getSpreadsheet(); 
+  const dbSheet = getOrCreateSheet(ss, SHEET_NAMES.database); 
+  const userData = getUserDataFromDb(dbSheet); 
+  const adminRole = userData.emailToRole[adminEmail] || 'agent'; 
+  const adminName = userData.emailToName[adminEmail] || adminEmail; 
   
-  if (adminRole !== 'admin' && adminRole !== 'superadmin') {
-    throw new Error("Permission denied. Only admins can take this action.");
+  // --- START MODIFICATION ---
+  // Get the admin's full hierarchy, regardless of role (admin/superadmin)
+  const mySubordinateEmails = new Set(webGetAllSubordinateEmails(adminEmail)); 
+
+  if (adminRole === 'agent') { // <-- Changed from original check
+    throw new Error("Permission denied. Only admins can take this action."); 
   }
+  // --- END MODIFICATION ---
   
-  const reqSheet = getOrCreateSheet(ss, SHEET_NAMES.leaveRequests);
-  const allData = reqSheet.getDataRange().getValues();
+  const reqSheet = getOrCreateSheet(ss, SHEET_NAMES.leaveRequests); 
+  const allData = reqSheet.getDataRange().getValues(); 
   
-  for (let i = 1; i < allData.length; i++) {
-    if (allData[i][0] === requestID) {
-      const row = allData[i];
-      const status = row[1];
+  for (let i = 1; i < allData.length; i++) { 
+    if (allData[i][0] === requestID) { 
+      const row = allData[i]; 
+      const status = row[1]; 
       
-      if (status !== 'Pending') {
-        throw new Error(`This request has already been ${status.toLowerCase()}.`);
+      if (status !== 'Pending') { 
+        throw new Error(`This request has already been ${status.toLowerCase()}.`); 
       }
       
-      const supervisorEmail = row[11];
-      if (adminRole !== 'superadmin' && supervisorEmail !== adminEmail) {
-        throw new Error("Permission denied. This request is assigned to a different supervisor.");
+      const supervisorEmail = (row[11] || "").toLowerCase(); // Get the email of the supervisor assigned to the request 
+      
+      // --- START MODIFICATION ---
+      // NEW HIERARCHY CHECK:
+      // The approver must be the assigned supervisor OR a manager of the assigned supervisor.
+      if (supervisorEmail !== adminEmail.toLowerCase() && !mySubordinateEmails.has(supervisorEmail)) { 
+        throw new Error("Permission denied. You can only approve requests assigned to you or to a supervisor in your reporting line."); 
       }
+      // --- END MODIFICATION ---
       
-      const reqEmail = row[2];
-      const reqName = row[3];
-      const reqLeaveType = row[4];
-      const reqStartDate = new Date(row[5]);
-      const reqEndDate = new Date(row[6]);
-      const reqStartDateStr = Utilities.formatDate(reqStartDate, Session.getScriptTimeZone(), "yyyy-MM-dd");
-      const reqEndDateStr = Utilities.formatDate(reqEndDate, Session.getScriptTimeZone(), "yyyy-MM-dd");
-      const totalDays = row[7];
-      let scheduleResult = "";
+      const reqEmail = row[2]; 
+      const reqName = row[3]; 
+      const reqLeaveType = row[4]; 
+      const reqStartDate = new Date(row[5]); 
+      const reqEndDate = new Date(row[6]); 
+      const reqStartDateStr = Utilities.formatDate(reqStartDate, Session.getScriptTimeZone(), "yyyy-MM-dd"); 
+      const reqEndDateStr = Utilities.formatDate(reqEndDate, Session.getScriptTimeZone(), "yyyy-MM-dd"); 
+      const totalDays = row[7]; 
+      let scheduleResult = ""; 
       
-      if (newStatus === 'Approved') {
+      if (newStatus === 'Approved') { 
       
-        const balanceKey = reqLeaveType.toLowerCase();
-        const balanceCol = { annual: 4, sick: 5, casual: 6 }[balanceKey];
-        if (!balanceCol) {
-          throw new Error(`Unknown leave type: ${reqLeaveType}. Balance cannot be deducted.`);
+        const balanceKey = reqLeaveType.toLowerCase(); 
+        const balanceCol = { annual: 4, sick: 5, casual: 6 }[balanceKey]; 
+        
+        if (!balanceCol) { 
+          throw new Error(`Unknown leave type: ${reqLeaveType}. Balance cannot be deducted.`); 
         }
         
-        const userRow = userData.emailToRow[reqEmail];
-        if (!userRow) {
-          throw new Error(`Could not find user ${reqName} in Data Base to deduct balance.`);
+        const userRow = userData.emailToRow[reqEmail]; 
+        
+        if (!userRow) { 
+          throw new Error(`Could not find user ${reqName} in Data Base to deduct balance.`); 
         }
         
-        const balanceRange = dbSheet.getRange(userRow, balanceCol);
-        const currentBalance = parseFloat(balanceRange.getValue()) || 0;
+        const balanceRange = dbSheet.getRange(userRow, balanceCol); 
+        const currentBalance = parseFloat(balanceRange.getValue()) || 0; 
         
-        if (currentBalance < totalDays) {
-          throw new Error(`Cannot approve. User only has ${currentBalance} ${reqLeaveType} days, but request is for ${totalDays}.`);
+        if (currentBalance < totalDays) { 
+          throw new Error(`Cannot approve. User only has ${currentBalance} ${reqLeaveType} days, but request is for ${totalDays}.`); 
         }
         
-        balanceRange.setValue(currentBalance - totalDays);
-      
-        scheduleResult = submitScheduleRange(
-          adminEmail, reqEmail, reqName,
-          reqStartDateStr, reqEndDateStr,
-          "", "", reqLeaveType
+        balanceRange.setValue(currentBalance - totalDays); 
+        
+        scheduleResult = submitScheduleRange( 
+          adminEmail, reqEmail, reqName, 
+          reqStartDateStr, reqEndDateStr, 
+          "", "", reqLeaveType 
         );
         
         reqSheet.getRange(i + 1, 2).setValue(newStatus); 
         reqSheet.getRange(i + 1, 10).setValue(new Date()); 
-        reqSheet.getRange(i + 1, 11).setValue(adminEmail);
-        reqSheet.getRange(i + 1, 13).setValue(reason || ""); // <-- Save reason to Column M 
+        reqSheet.getRange(i + 1, 11).setValue(adminEmail); 
+        reqSheet.getRange(i + 1, 13).setValue(reason || ""); 
         
       } else {
         reqSheet.getRange(i + 1, 2).setValue(newStatus); 
         reqSheet.getRange(i + 1, 10).setValue(new Date()); 
-        reqSheet.getRange(i + 1, 11).setValue(adminEmail);
-        reqSheet.getRange(i + 1, 13).setValue(reason || ""); // <-- Save reason to Column M 
+        reqSheet.getRange(i + 1, 11).setValue(adminEmail); 
+        reqSheet.getRange(i + 1, 13).setValue(reason || ""); 
       }
 
-      if (newStatus === 'Approved') {
-        return `Request approved. ${scheduleResult}`;
+      if (newStatus === 'Approved') { 
+        return `Request approved. ${scheduleResult}`; 
       } else {
-        return "Request has been denied.";
+        return "Request has been denied."; 
       }
     }
   }
   
-  throw new Error("Could not find the request ID.");
+  throw new Error("Could not find the request ID."); 
 }
 
 // ================= NEW/MODIFIED FUNCTIONS =================
@@ -3004,62 +3015,60 @@ function webGetPendingRegistrations() {
  */
 function webApproveDenyRegistration(requestID, userEmail, selectedSupervisorEmail, newStatus) {
   try {
-    const adminEmail = Session.getActiveUser().getEmail().toLowerCase();
-const ss = getSpreadsheet();
-    const dbSheet = getOrCreateSheet(ss, SHEET_NAMES.database);
-    const userData = getUserDataFromDb(dbSheet);
-
-    // --- MODIFIED PERMISSION CHECK ---
-    const adminRole = userData.emailToRole[adminEmail] || 'agent';
-
-    if (adminRole === 'agent') {
-      throw new Error("Permission denied.");
+    const adminEmail = Session.getActiveUser().getEmail().toLowerCase(); 
+    const ss = getSpreadsheet(); 
+    const dbSheet = getOrCreateSheet(ss, SHEET_NAMES.database); 
+    const userData = getUserDataFromDb(dbSheet); 
+    
+    // --- START MODIFICATION ---
+    const adminRole = userData.emailToRole[adminEmail] || 'agent'; 
+    
+    if (adminRole === 'agent') { 
+      throw new Error("Permission denied."); 
     }
     
-    if (adminRole === 'admin') {
-      // Admin role: Check if they manage the selected supervisor
-      const myTeamEmails = new Set(webGetAllSubordinateEmails(adminEmail));
-      if (!myTeamEmails.has(selectedSupervisorEmail.toLowerCase())) {
-        throw new Error("Permission denied. You can only approve requests for your own reporting line.");
-      }
+    // Get hierarchy for ALL managers (admin or superadmin)
+    const myTeamEmails = new Set(webGetAllSubordinateEmails(adminEmail)); 
+
+    // Apply the check to everyone, not just 'admin'
+    if (!myTeamEmails.has(selectedSupervisorEmail.toLowerCase())) { 
+      throw new Error("Permission denied. You can only Approve or Deny registrations for users who have selected a supervisor in your reporting line."); 
     }
-    // Superadmin implicitly passes this check
+    // Superadmin is no longer able to bypass this check.
     // --- END MODIFICATION ---
 
     // 1. Update the PendingRegistrations sheet
-    const regSheet = getOrCreateSheet(ss, SHEET_NAMES.pendingRegistrations);
-    const regData = regSheet.getDataRange().getValues();
-    let regRow = -1;
-    for (let i = 1; i < regData.length; i++) {
-      if (regData[i][0] === requestID && regData[i][4] === 'Pending') {
-        regRow = i + 1;
-        break;
+    const regSheet = getOrCreateSheet(ss, SHEET_NAMES.pendingRegistrations); 
+    const regData = regSheet.getDataRange().getValues(); 
+    let regRow = -1; 
+    for (let i = 1; i < regData.length; i++) { 
+      if (regData[i][0] === requestID && regData[i][4] === 'Pending') { 
+        regRow = i + 1; 
+        break; 
       }
     }
-    if (regRow === -1) {
-      throw new Error("Could not find the registration request.");
+    if (regRow === -1) { 
+      throw new Error("Could not find the registration request."); 
     }
-    regSheet.getRange(regRow, 5).setValue(newStatus); // Set Status (Column E)
-    regSheet.getRange(regRow, 1, 1, regSheet.getLastColumn()).setBackground("#f4f4f4"); // Grey out row
+    regSheet.getRange(regRow, 5).setValue(newStatus); // Set Status (Column E) 
+    regSheet.getRange(regRow, 1, 1, regSheet.getLastColumn()).setBackground("#f4f4f4"); 
 
     // 2. If Approved, update the Data Base
-    if (newStatus === 'Approved') {
-      const userDBRow = userData.emailToRow[userEmail];
-      if (!userDBRow) {
-        throw new Error(`Could not find user ${userEmail} in Data Base to approve.`);
+    if (newStatus === 'Approved') { 
+      const userDBRow = userData.emailToRow[userEmail]; 
+      if (!userDBRow) { 
+        throw new Error(`Could not find user ${userEmail} in Data Base to approve.`); 
       }
-      dbSheet.getRange(userDBRow, 7).setValue(selectedSupervisorEmail); // Set SupervisorEmail (Col G)
-      dbSheet.getRange(userDBRow, 8).setValue("Active"); // Set AccountStatus (Col H)
+      dbSheet.getRange(userDBRow, 7).setValue(selectedSupervisorEmail); // Set SupervisorEmail (Col G) 
+      dbSheet.getRange(userDBRow, 8).setValue("Active"); // Set AccountStatus (Col H) 
     }
+    // If Denied, we do nothing. The user will be prompted to re-submit. 
     
-    // If Denied, we do nothing. The user will be prompted to re-submit.
-    
-    SpreadsheetApp.flush();
-    return { success: true, message: `User registration ${newStatus.toLowerCase()}.` };
-
+    SpreadsheetApp.flush(); 
+    return { success: true, message: `User registration ${newStatus.toLowerCase()}.` }; 
   } catch (e) {
-    Logger.log(`webApproveDenyRegistration Error: ${e.message}`);
-    return { error: e.message };
+    Logger.log(`webApproveDenyRegistration Error: ${e.message}`); 
+    return { error: e.message }; 
   }
 }
 // --- ADD TO THE END OF code.gs ---
