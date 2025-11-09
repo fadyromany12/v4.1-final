@@ -2292,9 +2292,13 @@
             lrUserSelect.value = 'ALL_SUBORDINATES'; // Default
           }
 
-          if (user.role === 'superadmin') {
-             // *** NEW: Show Registration Admin tab ONLY for superadmin ***
+          if (user.role === 'admin' || user.role === 'superadmin') {
+             // *** MODIFIED: Show Registration Admin tab for admin and superadmin ***
              document.getElementById('registration-admin-tab-button').style.display = 'inline-block';
+          }
+
+          if (user.role === 'superadmin') {
+             // *** MOVED: Announcements tab is still superadmin only ***
              document.getElementById('announcements-admin-tab-button').style.display = 'inline-block';
           }
           
