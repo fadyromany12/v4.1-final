@@ -2910,37 +2910,70 @@ function webGetMyRegistrationStatus() {
 }
 
 /**
- * For the Superadmin to load the approval queue.
+ * For the Superadmin/Admin to load the approval queue.
+ * MODIFIED: Allows Admins to see requests for their subordinates.
  */
 function webGetPendingRegistrations() {
   try {
     const adminEmail = Session.getActiveUser().getEmail().toLowerCase();
-    const userData = getUserDataFromDb(getOrCreateSheet(getSpreadsheet(), SHEET_NAMES.database));
+    const ss = getSpreadsheet();
+    const dbSheet = getOrCreateSheet(ss, SHEET_NAMES.database);
+    const userData = getUserDataFromDb(dbSheet);
     
-    if (userData.emailToRole[adminEmail] !== 'superadmin') {
-      throw new Error("Permission denied. Only superadmins can approve new users.");
+    // --- MODIFIED PERMISSION CHECK ---
+    const adminRole = userData.emailToRole[adminEmail] || 'agent';
+    if (adminRole !== 'admin' && adminRole !== 'superadmin') {
+      throw new Error("Permission denied. Only admins and superadmins can approve new users.");
     }
+    // --- END MODIFICATION ---
 
-    const regSheet = getOrCreateSheet(getSpreadsheet(), SHEET_NAMES.pendingRegistrations);
+    // --- NEW: Get Admin's team for filtering ---
+    let myTeamEmails = new Set();
+    if (adminRole === 'admin') {
+      // webGetAllSubordinateEmails includes the admin's own email
+      myTeamEmails = new Set(webGetAllSubordinateEmails(adminEmail));
+    }
+    // --- END NEW ---
+
+    const regSheet = getOrCreateSheet(ss, SHEET_NAMES.pendingRegistrations);
     const data = regSheet.getDataRange().getValues();
     const pending = [];
-
+    
+    // --- MODIFIED LOOP with filtering ---
     for (let i = 1; i < data.length; i++) {
-      if (data[i][4] === "Pending") {
-        pending.push({
-          requestID: data[i][0],
-          userEmail: data[i][1],
-          userName: data[i][2],
-          selectedSupervisorEmail: data[i][3],
-          supervisorName: userData.emailToName[data[i][3]] || 'Unknown Supervisor',
-          timestamp: convertDateToString(data[i][5])
-        });
+      const row = data[i];
+      const status = row[4];
+      const selectedSupervisorEmail = (row[3] || "").toLowerCase();
+
+      if (status === "Pending") {
+        
+        let canView = false;
+        if (adminRole === 'superadmin') {
+          // Superadmin can see all
+          canView = true;
+        } else if (adminRole === 'admin' && myTeamEmails.has(selectedSupervisorEmail)) {
+          // Admin can see if the selected supervisor is in their hierarchy
+          canView = true;
+        }
+        
+        if (canView) {
+          pending.push({
+            requestID: row[0],
+            userEmail: row[1],
+            userName: row[2],
+            selectedSupervisorEmail: selectedSupervisorEmail, // Use cleaned variable
+            supervisorName: userData.emailToName[selectedSupervisorEmail] || 'Unknown Supervisor',
+            timestamp: convertDateToString(row[5])
+          });
+        }
       }
     }
+    // --- END MODIFICATION ---
+
     return pending.sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp)); // Newest first
   } catch (e) {
     return { error: e.message };
-  }
+}
 }
 
 /**
@@ -2949,13 +2982,26 @@ function webGetPendingRegistrations() {
 function webApproveDenyRegistration(requestID, userEmail, selectedSupervisorEmail, newStatus) {
   try {
     const adminEmail = Session.getActiveUser().getEmail().toLowerCase();
-    const ss = getSpreadsheet();
+const ss = getSpreadsheet();
     const dbSheet = getOrCreateSheet(ss, SHEET_NAMES.database);
     const userData = getUserDataFromDb(dbSheet);
-    
-    if (userData.emailToRole[adminEmail] !== 'superadmin') {
-      throw new Error("Permission denied. Only superadmins can approve new users.");
+
+    // --- MODIFIED PERMISSION CHECK ---
+    const adminRole = userData.emailToRole[adminEmail] || 'agent';
+
+    if (adminRole === 'agent') {
+      throw new Error("Permission denied.");
     }
+    
+    if (adminRole === 'admin') {
+      // Admin role: Check if they manage the selected supervisor
+      const myTeamEmails = new Set(webGetAllSubordinateEmails(adminEmail));
+      if (!myTeamEmails.has(selectedSupervisorEmail.toLowerCase())) {
+        throw new Error("Permission denied. You can only approve requests for your own reporting line.");
+      }
+    }
+    // Superadmin implicitly passes this check
+    // --- END MODIFICATION ---
 
     // 1. Update the PendingRegistrations sheet
     const regSheet = getOrCreateSheet(ss, SHEET_NAMES.pendingRegistrations);
