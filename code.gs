@@ -1156,6 +1156,21 @@ function getUserInfo() {
     const myBalances = userData.emailToBalances[userEmail] ||
     { annual: 0, sick: 0, casual: 0 };
 
+    // *** ADD THIS BLOCK ***
+let hasPendingRoleRequests = false;
+if (role === 'superadmin') {
+  const reqSheet = getOrCreateSheet(ss, SHEET_NAMES.roleRequests);
+const data = reqSheet.getDataRange().getValues();
+  const statusIndex = data[0].indexOf("Status");
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][statusIndex] === 'Pending') {
+      hasPendingRoleRequests = true;
+break;
+    }
+  }
+}
+// *** END BLOCK ***
+
     return {
       name: userName, 
       email: userEmail,
@@ -1164,9 +1179,10 @@ function getUserInfo() {
       allAdmins: allAdmins,
       myBalances: myBalances,
       isNewUser: isNewUser, // This flag is still useful
-      accountStatus: accountStatus // *** NEW: Send status to frontend ***
+      accountStatus: accountStatus, // *** NEW: Send status to frontend ***
+      hasPendingRoleRequests: hasPendingRoleRequests // *** ADD THIS LINE ***
     };
-  } catch (e) {
+} catch (e) {
     throw new Error("Failed in getUserInfo: " + e.message);
   }
 }
@@ -1734,16 +1750,17 @@ function getOrCreateSheet(ss, name) {
   sheet.getRange("A1:E1").setValues([[
     "AnnouncementID", "Content", "Status", "CreatedByEmail", "Timestamp"
   ]]);
-  sheet.getRange("E:E").setNumberFormat("mm/dd/yyyy hh:mm:ss");
+sheet.getRange("E:E").setNumberFormat("mm/dd/yyyy hh:mm:ss");
 }
 // *** ADD THIS NEW ELSE IF BLOCK ***
     else if (name === SHEET_NAMES.roleRequests) {
-      sheet.getRange("A1:G1").setValues([[
-        "RequestID", "UserEmail", "UserName", "CurrentRole", "RequestedRole", "Justification", "RequestTimestamp"
+      sheet.getRange("A1:J1").setValues([[
+        "RequestID", "UserEmail", "UserName", "CurrentRole", "RequestedRole", "Justification", 
+        "RequestTimestamp", "Status", "ActionByEmail", "ActionTimestamp"
       ]]);
       sheet.getRange("G:G").setNumberFormat("mm/dd/yyyy hh:mm:ss");
+      sheet.getRange("J:J").setNumberFormat("mm/dd/yyyy hh:mm:ss");
     }
-
     // *** END NEW BLOCK ***
 
     // +++ END OF NEW SHEET DEFINITIONS +++
@@ -3305,20 +3322,141 @@ function webRequestAdminAccess(justification, requestedRole) {
     const reqSheet = getOrCreateSheet(ss, SHEET_NAMES.roleRequests);
     const requestID = `ROLE-${new Date().getTime()}`;
 
-    reqSheet.appendRow([
-      requestID,
-      userEmail,
-      userName,
-      currentRole,
-      requestedRole,
-      justification,
-      new Date()
-    ]);
+    // ...
+reqSheet.appendRow([
+  requestID,
+  userEmail,
+  userName,
+  currentRole,
+  requestedRole,
+  justification,
+  new Date(),
+  "Pending", // *** ADD "Pending" STATUS ***
+  "",        // ActionByEmail
+  ""         // ActionTimestamp
+]);
 
     return "Your role upgrade request has been submitted for review.";
 
   } catch (e) {
     Logger.log("webRequestAdminAccess Error: " + e.message);
     return "Error: " + e.message;
+  }
+}
+
+/**
+ * Fetches pending role requests. Superadmin only.
+ */
+function webGetRoleRequests() {
+  try {
+    const adminEmail = Session.getActiveUser().getEmail().toLowerCase();
+    const ss = getSpreadsheet();
+    const dbSheet = getOrCreateSheet(ss, SHEET_NAMES.database);
+    const userData = getUserDataFromDb(dbSheet);
+
+    if (userData.emailToRole[adminEmail] !== 'superadmin') {
+      throw new Error("Permission denied. Only superadmins can view role requests.");
+    }
+
+    const reqSheet = getOrCreateSheet(ss, SHEET_NAMES.roleRequests);
+    const data = reqSheet.getDataRange().getValues();
+    const headers = data[0];
+    const results = [];
+    
+    // Find column indexes
+    const statusIndex = headers.indexOf("Status");
+    const idIndex = headers.indexOf("RequestID");
+    const emailIndex = headers.indexOf("UserEmail");
+    const nameIndex = headers.indexOf("UserName");
+    const currentIndex = headers.indexOf("CurrentRole");
+    const requestedIndex = headers.indexOf("RequestedRole");
+    const justifyIndex = headers.indexOf("Justification");
+    const timeIndex = headers.indexOf("RequestTimestamp");
+
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      if (row[statusIndex] === 'Pending') {
+        results.push({
+          requestID: row[idIndex],
+          userEmail: row[emailIndex],
+          userName: row[nameIndex],
+          currentRole: row[currentIndex],
+          requestedRole: row[requestedIndex],
+          justification: row[justifyIndex],
+          timestamp: convertDateToString(new Date(row[timeIndex]))
+        });
+      }
+    }
+    return results.sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp)); // Newest first
+  } catch (e) {
+    Logger.log("webGetRoleRequests Error: " + e.message);
+    return { error: e.message };
+  }
+}
+
+/**
+ * Approves or denies a role request. Superadmin only.
+ */
+function webApproveDenyRoleRequest(requestID, newStatus) {
+  try {
+    const adminEmail = Session.getActiveUser().getEmail().toLowerCase();
+    const ss = getSpreadsheet();
+    const dbSheet = getOrCreateSheet(ss, SHEET_NAMES.database);
+    const userData = getUserDataFromDb(dbSheet);
+
+    if (userData.emailToRole[adminEmail] !== 'superadmin') {
+      throw new Error("Permission denied. Only superadmins can action role requests.");
+    }
+
+    const reqSheet = getOrCreateSheet(ss, SHEET_NAMES.roleRequests);
+    const data = reqSheet.getDataRange().getValues();
+    const headers = data[0];
+
+    // Find columns
+    const idIndex = headers.indexOf("RequestID");
+    const statusIndex = headers.indexOf("Status");
+    const emailIndex = headers.indexOf("UserEmail");
+    const requestedIndex = headers.indexOf("RequestedRole");
+    const actionByIndex = headers.indexOf("ActionByEmail");
+    const actionTimeIndex = headers.indexOf("ActionTimestamp");
+    
+    let rowToUpdate = -1;
+    let requestDetails = {};
+
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][idIndex] === requestID) {
+        rowToUpdate = i + 1; // 1-based index
+        requestDetails = {
+          status: data[i][statusIndex],
+          userEmail: data[i][emailIndex],
+          newRole: data[i][requestedIndex]
+        };
+        break;
+      }
+    }
+
+    if (rowToUpdate === -1) throw new Error("Request ID not found.");
+    if (requestDetails.status !== 'Pending') throw new Error(`This request has already been ${requestDetails.status}.`);
+
+    // 1. Update the Role Request sheet
+    reqSheet.getRange(rowToUpdate, statusIndex + 1).setValue(newStatus);
+    reqSheet.getRange(rowToUpdate, actionByIndex + 1).setValue(adminEmail);
+    reqSheet.getRange(rowToUpdate, actionTimeIndex + 1).setValue(new Date());
+
+    // 2. If Approved, update the Data Base
+    if (newStatus === 'Approved') {
+      const userDBRow = userData.emailToRow[requestDetails.userEmail];
+      if (!userDBRow) {
+        throw new Error(`Could not find user ${requestDetails.userEmail} in Data Base to update role.`);
+      }
+      // Find Role column (Column C = 3)
+      dbSheet.getRange(userDBRow, 3).setValue(requestDetails.newRole);
+    }
+    
+    SpreadsheetApp.flush();
+    return { success: true, message: `Request has been ${newStatus}.` };
+  } catch (e) {
+    Logger.log("webApproveDenyRoleRequest Error: " + e.message);
+    return { error: e.message };
   }
 }
