@@ -331,6 +331,29 @@
         100% { transform: rotate(360deg); }
       }
       
+      #header-role-request-button {
+         position: relative; /* Needed for the badge */
+     }
+
+     #header-role-request-button.has-notification::after {
+       content: '';
+       position: absolute;
+       top: 5px;
+      right: 5px;
+       width: 10px;
+       height: 10px;
+       background-color: #ea4335; /* Red dot */
+       border-radius: 50%;
+       border: 2px solid var(--card-bg);
+       box-shadow: 0 0 5px rgba(234, 67, 53, 0.8);
+       animation: pulse 1.5s infinite;
+     }
+
+     @keyframes pulse {
+       0% { transform: scale(0.95); }
+       70% { transform: scale(1.1); }
+       100% { transform: scale(0.95); }
+          }
       /* --- Dark Mode Toggle Switch (NEW STYLES) --- */
       .dark-mode-toggle-wrapper {
         position: relative;
@@ -2252,7 +2275,25 @@
         document.getElementById('buttons').style.display = 'block';
         document.getElementById('other-buttons').style.display = 'block';
         document.getElementById('my-schedule-tab-button').style.display = 'inline-block';
-        document.getElementById('header-role-request-button').style.display = 'flex';
+        
+        // *** REPLACE THE OLD 'header-role-request-button' LINE WITH THIS BLOCK ***
+        const roleButton = document.getElementById('header-role-request-button');
+        if (user.role === 'superadmin') {
+          roleButton.style.display = 'flex';
+          roleButton.setAttribute('onclick', 'showRoleApprovalModal()');
+          roleButton.setAttribute('title', 'Manage Role Upgrade Requests');
+          if (user.hasPendingRoleRequests) {
+            roleButton.classList.add('has-notification');
+          } else {
+            roleButton.classList.remove('has-notification');
+          }
+        } else if (user.role === 'admin' || user.role === 'agent') {
+          roleButton.style.display = 'flex';
+          roleButton.setAttribute('onclick', 'showRoleRequestModal()');
+          roleButton.setAttribute('title', 'Request Role Upgrade');
+          roleButton.classList.remove('has-notification');
+        }
+        // *** END OF BLOCK ***
         
         if (user.myBalances) populateMyBalances(user.myBalances);
 
@@ -5102,6 +5143,91 @@
         document.getElementById('role-request-modal').style.display = 'none';
       }
 
+      function showRoleApprovalModal() {
+  // This is the Superadmin modal
+  document.getElementById('role-approval-modal-backdrop').style.display = 'block';
+  document.getElementById('role-approval-modal').style.display = 'flex';
+  loadRoleRequests(); // Load the list of requests
+}
+
+function hideRoleApprovalModal() {
+  document.getElementById('role-approval-modal-backdrop').style.display = 'none';
+  document.getElementById('role-approval-modal').style.display = 'none';
+}
+
+function loadRoleRequests() {
+  setStatus('role-approval-status', 'processing', 'Loading pending requests...');
+  const listDiv = document.getElementById('role-request-list');
+  listDiv.innerHTML = '';
+
+  google.script.run
+    .withSuccessHandler(requests => {
+      if (requests.error) {
+        setStatus('role-approval-status', 'error', requests.error);
+        return;
+      }
+      if (requests.length === 0) {
+        listDiv.innerHTML = '<p class="text-color-secondary">No pending role requests.</p>';
+        setStatus('role-approval-status', '', ''); // Clear loading
+        // Remove notification badge
+        document.getElementById('header-role-request-button').classList.remove('has-notification');
+        return;
+      }
+
+      let html = '';
+      requests.forEach(req => {
+        html += `
+          <div class="request-list-item">
+            <div class="item-details">
+              <h4>${req.userName}</h4>
+              <p><strong>Email:</strong> ${req.userEmail}</p>
+              <p><strong>Request:</strong> ${req.currentRole} ➔ <strong>${req.requestedRole}</strong></p>
+              <p><strong>Justification:</strong> ${req.justification}</p>
+              <p class="text-color-secondary"><strong>Submitted:</strong> ${formatDate(req.timestamp)}</p>
+            </div>
+            <div class="item-actions">
+              <button class="approve-btn" onclick="approveDenyRoleRequest('${req.requestID}', 'Approved')">Approve</button>
+              <button class="deny-btn" onclick="approveDenyRoleRequest('${req.requestID}', 'Denied')">Deny</button>
+            </div>
+          </div>
+        `;
+      });
+      listDiv.innerHTML = html;
+      setStatus('role-approval-status', 'success', `Loaded ${requests.length} requests.`);
+    })
+    .withFailureHandler(err => {
+      setStatus('role-approval-status', 'error', err.message);
+    })
+    .webGetRoleRequests();
+}
+
+function approveDenyRoleRequest(requestID, newStatus) {
+  const runAction = () => {
+    setStatus('role-approval-status', 'processing', `Processing ${newStatus}...`);
+
+    google.script.run
+      .withSuccessHandler(result => {
+        if (result.error) {
+          setStatus('role-approval-status', 'error', result.error);
+        } else {
+          setStatus('role-approval-status', 'success', result.message);
+          loadRoleRequests(); // Refresh the list
+        }
+      })
+      .withFailureHandler(err => {
+        setStatus('role-approval-status', 'error', err.message);
+      })
+      .webApproveDenyRoleRequest(requestID, newStatus);
+  };
+
+  // Show a confirmation before doing anything
+  const message = newStatus === 'Approved' ? 'Are you sure you want to approve this role upgrade?' : 'Are you sure you want to deny this request?';
+  const buttonClass = newStatus === 'Approved' ? 'submit-btn-green' : 'deny-btn';
+
+  showCustomConfirm(message, newStatus, buttonClass, runAction);
+}
+// *** END OF NEW FUNCTIONS ***
+
 
 
       // ===================================
@@ -5283,7 +5409,7 @@ function deleteAnnouncement(id) {
 
         toggleTimeFields();
       });
-    </script>
+   </script>
     <div id="coaching-detail-modal-backdrop" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 199;"></div>
     <div id="coaching-detail-modal" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 800px; max-height: 90vh; background-color: var(--card-bg); border-radius: var(--radius); z-index: 200; box-shadow: var(--shadow); overflow: hidden; flex-direction: column;">
       
@@ -5326,8 +5452,9 @@ function deleteAnnouncement(id) {
         <button type="button" class="submit-btn-green" style="min-width: 120px;" onclick="saveMySupervisor()">Save and Continue</button>
       </div>
     </div>
-    </div>
-    </div>
+    
+    </div> 
+    
     <div id="confirm-modal-backdrop" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7); z-index: 399;"></div>
     <div id="confirm-modal" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 450px; background-color: var(--card-bg); border-radius: var(--radius); z-index: 400; box-shadow: var(--shadow); overflow: hidden; flex-direction: column;">
       
@@ -5374,6 +5501,26 @@ function deleteAnnouncement(id) {
       <div style="padding: 15px 20px; border-top: 1px solid var(--border-color); background-color: var(--input-bg); text-align: right;">
         <button type="button" class="view-btn" style="background-color: var(--text-color-secondary);" onclick="hideRoleRequestModal()">Close</button>
       </div>
+    
+      </div> <div id="role-approval-modal-backdrop" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7); z-index: 299;"></div>
+    <div id="role-approval-modal" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 600px; max-height: 90vh; background-color: var(--card-bg); border-radius: var(--radius); z-index: 300; box-shadow: var(--shadow); overflow: hidden; flex-direction: column;">
+
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; border-bottom: 1px solid var(--border-color);">
+        <h2 style="margin: 0; font-size: 1.25rem; color: var(--konecta-blue);">Pending Role Upgrade Requests</h2>
+        <button onclick="hideRoleApprovalModal()" style="background: none; border: none; font-size: 2rem; cursor: pointer; color: var(--text-color-secondary); padding: 0 10px; line-height: 1;">&times;</button>
+      </div>
+
+      <div id="role-approval-modal-body" style="padding: 20px; overflow-y: auto; flex-grow: 1;">
+        <div id="role-approval-status" class="status-message"></div>
+        <div id="role-request-list" class="request-list" style="padding-top: 0; margin-top: 0;">
+          <p class="text-color-secondary">Loading requests...</p>
+        </div>
+      </div>
+
+      <div style="padding: 15px 20px; border-top: 1px solid var(--border-color); background-color: var(--input-bg); text-align: right;">
+        <button type="button" class="view-btn" style="background-color: var(--text-color-secondary);" onclick="hideRoleApprovalModal()">Close</button>
+      </div>
     </div>
-    </body>
+    
+  </body>
 </html>
