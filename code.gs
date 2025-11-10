@@ -14,7 +14,8 @@ const SHEET_NAMES = {
   coachingTemplates: "CoachingTemplates", // <-- *** ADD THIS LINE ***
   pendingRegistrations: "PendingRegistrations",
   movementRequests: "MovementRequests",
-  announcements: "Announcements"
+  announcements: "Announcements",
+  roleRequests: "Role Requests"
 };
 // --- Break Time Configuration (in seconds) ---
 const PLANNED_BREAK_SECONDS = 15 * 60; // 15 minutes
@@ -229,10 +230,12 @@ function webGetPendingMovements() {
     const ss = getSpreadsheet();
     const dbSheet = getOrCreateSheet(ss, SHEET_NAMES.database);
     const userData = getUserDataFromDb(dbSheet);
+
+    // *** ADD THIS LINE TO FIX THE ERROR ***
+    const adminRole = userData.emailToRole[adminEmail] || 'agent';
     
     // Get all subordinates (direct and indirect)
     const mySubordinateEmails = new Set(webGetAllSubordinateEmails(adminEmail));
-
     const moveSheet = getOrCreateSheet(ss, SHEET_NAMES.movementRequests);
     const data = moveSheet.getDataRange().getValues();
     const results = [];
@@ -573,7 +576,8 @@ function webGetCoachingHistory(filter) { // filter is unused for now, but good p
           overallScore: session.OverallScore,
           followUpComment: session.FollowUpComment,
           followUpDate: convertDateToString(new Date(session.FollowUpDate)),
-          followUpStatus: session.FollowUpStatus
+          followUpStatus: session.FollowUpStatus,
+          agentAcknowledgementTimestamp: convertDateToString(new Date(session.AgentAcknowledgementTimestamp))
         });
       }
     }
@@ -727,15 +731,16 @@ function webSubmitCoachingAcknowledgement(sessionID) {
   try {
     const userEmail = Session.getActiveUser().getEmail().toLowerCase();
     const ss = getSpreadsheet();
-    
     const sessionSheet = getOrCreateSheet(ss, SHEET_NAMES.coachingSessions);
-    const sessionData = sessionSheet.getDataRange().getValues();
-    const sessionHeaders = sessionData[0];
-    
+
+    // *** MODIFIED: Explicitly read headers ***
+    const sessionHeaders = sessionSheet.getRange(1, 1, 1, sessionSheet.getLastColumn()).getValues()[0];
+    // Get data rows separately, skipping header
+    const sessionData = sessionSheet.getRange(2, 1, sessionSheet.getLastRow() - 1, sessionSheet.getLastColumn()).getValues();
+
     // Find the column indexes
     const ackColIndex = sessionHeaders.indexOf("AgentAcknowledgementTimestamp");
     const agentEmailColIndex = sessionHeaders.indexOf("AgentEmail");
-    
     if (ackColIndex === -1 || agentEmailColIndex === -1) {
       throw new Error("Could not find 'AgentAcknowledgementTimestamp' or 'AgentEmail' columns in CoachingSessions sheet.");
     }
@@ -745,9 +750,10 @@ function webSubmitCoachingAcknowledgement(sessionID) {
     let agentEmailOnRow = null;
     let currentAckStatus = null;
 
-    for (let i = 1; i < sessionData.length; i++) {
+    // *** MODIFIED: Loop starts at 0 and row index is i + 2 ***
+    for (let i = 0; i < sessionData.length; i++) {
       if (sessionData[i][0] === sessionID) {
-        sessionRow = i + 1; // 1-based index
+        sessionRow = i + 2; // Data starts from row 2
         agentEmailOnRow = sessionData[i][agentEmailColIndex].toLowerCase();
         currentAckStatus = sessionData[i][ackColIndex];
         break;
@@ -1730,6 +1736,13 @@ function getOrCreateSheet(ss, name) {
   ]]);
   sheet.getRange("E:E").setNumberFormat("mm/dd/yyyy hh:mm:ss");
 }
+// *** ADD THIS NEW ELSE IF BLOCK ***
+    else if (name === SHEET_NAMES.roleRequests) {
+      sheet.getRange("A1:G1").setValues([[
+        "RequestID", "UserEmail", "UserName", "CurrentRole", "RequestedRole", "Justification", "RequestTimestamp"
+      ]]);
+      sheet.getRange("G:G").setNumberFormat("mm/dd/yyyy hh:mm:ss");
+    }
 
     // *** END NEW BLOCK ***
 
@@ -2260,9 +2273,26 @@ function getAdherenceRange(adminEmail, userNames, startDateStr, endDateStr) {
 }
 
 
-// (No Change)
+// *** REPLACE with this entire new function ***
 function getMySchedule(userEmail) {
   const ss = getSpreadsheet();
+  
+  // *** NEW: Get User Data & Role ***
+  const dbSheet = getOrCreateSheet(ss, SHEET_NAMES.database);
+  const userData = getUserDataFromDb(dbSheet);
+  const userRole = userData.emailToRole[userEmail] || 'agent';
+
+  // *** NEW: Build Target Email List ***
+  const targetEmails = new Set();
+  if (userRole === 'agent') {
+    targetEmails.add(userEmail);
+  } else {
+    // webGetAllSubordinateEmails includes the manager's own email
+    const subEmails = webGetAllSubordinateEmails(userEmail);
+    subEmails.forEach(email => targetEmails.add(email.toLowerCase()));
+  }
+  // *** END NEW ***
+
   const scheduleSheet = getOrCreateSheet(ss, SHEET_NAMES.schedule);
   const scheduleData = scheduleSheet.getDataRange().getValues();
   const timeZone = Session.getScriptTimeZone();
@@ -2272,25 +2302,17 @@ function getMySchedule(userEmail) {
   
   const nextSevenDays = new Date(today);
   nextSevenDays.setDate(today.getDate() + 7);
-  
-  // *** NEW: DEBUG LOGGING ***
-  Logger.log(`getMySchedule for ${userEmail}: Today: ${today.toISOString()}, 7-Day-Cutoff: ${nextSevenDays.toISOString()}`);
 
   const mySchedule = [];
-  
   for (let i = 1; i < scheduleData.length; i++) {
     const row = scheduleData[i];
     const schEmail = (row[5] || "").toString().trim().toLowerCase();
     
-    if (schEmail === userEmail) {
+    // *** MODIFIED: Check against the Set ***
+    if (targetEmails.has(schEmail)) {
       try {
-        // *** NEW: DEBUG LOGGING ***
-        Logger.log(`Checking row ${i+1}: Email: ${schEmail}, Date: ${row[1]}, IsMatch: ${schEmail === userEmail}`);
         const schDate = new Date(row[1]);
         
-        // *** NEW: DEBUG LOGGING ***
-        Logger.log(`DateCheck: ${schDate.toISOString()} >= ${today.toISOString()} && ${schDate.toISOString()} < ${nextSevenDays.toISOString()} = ${schDate >= today && schDate < nextSevenDays}`);
-
         if (schDate >= today && schDate < nextSevenDays) { 
           
           let startTime = row[2];
@@ -2304,6 +2326,8 @@ function getMySchedule(userEmail) {
           }
           
           mySchedule.push({
+            // *** NEW: Add user name ***
+            userName: userData.emailToName[schEmail] || schEmail,
             date: convertDateToString(schDate),
             leaveType: row[4] || 'Present',
             startTime: startTime,
@@ -2316,9 +2340,15 @@ function getMySchedule(userEmail) {
     }
   }
   
-  // Sort by date
-  mySchedule.sort((a, b) => new Date(a.date) - new Date(b.date));
-  
+  // Sort by date, THEN by user name
+  mySchedule.sort((a, b) => {
+    const dateA = new Date(a.date);
+    const dateB = new Date(b.date);
+    if (dateA < dateB) return -1;
+    if (dateA > dateB) return 1;
+    // If dates are same, sort by name
+    return a.userName.localeCompare(b.userName);
+  });
   return mySchedule;
 }
 
@@ -3243,5 +3273,52 @@ function webDeleteAnnouncement(announcementID) {
   } catch (e) {
     Logger.log("webDeleteAnnouncement Error: " + e.message);
     return { error: e.message };
+  }
+}
+
+/**
+ * NEW: Logs a request from a user to upgrade their role.
+ */
+function webRequestAdminAccess(justification, requestedRole) {
+  try {
+    const userEmail = Session.getActiveUser().getEmail().toLowerCase();
+    const ss = getSpreadsheet();
+    const dbSheet = getOrCreateSheet(ss, SHEET_NAMES.database);
+    const userData = getUserDataFromDb(dbSheet);
+    
+    const userName = userData.emailToName[userEmail];
+    const currentRole = userData.emailToRole[userEmail] || 'agent';
+
+    if (!userName) {
+      throw new Error("Your user account could not be found.");
+    }
+    if (currentRole === 'superadmin') {
+      throw new Error("You are already a Superadmin.");
+    }
+    if (currentRole === 'admin' && requestedRole === 'admin') {
+      throw new Error("You are already an Admin.");
+    }
+    if (currentRole === 'agent' && requestedRole === 'superadmin') {
+      throw new Error("You must be an Admin to request Superadmin access.");
+    }
+
+    const reqSheet = getOrCreateSheet(ss, SHEET_NAMES.roleRequests);
+    const requestID = `ROLE-${new Date().getTime()}`;
+
+    reqSheet.appendRow([
+      requestID,
+      userEmail,
+      userName,
+      currentRole,
+      requestedRole,
+      justification,
+      new Date()
+    ]);
+
+    return "Your role upgrade request has been submitted for review.";
+
+  } catch (e) {
+    Logger.log("webRequestAdminAccess Error: " + e.message);
+    return "Error: " + e.message;
   }
 }
