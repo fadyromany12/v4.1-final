@@ -287,6 +287,33 @@
         background-color: var(--page-bg);
         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
       }
+      #header-role-request-button {
+        background: var(--input-bg);
+        border: 1px solid var(--border-color);
+        cursor: pointer;
+        height: 34px;
+        width: 34px;
+        padding: 0;
+        border-radius: var(--radius);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        /* This display: none is the default, JS will show it */
+        display: none; 
+      }
+
+      #header-role-request-button:hover {
+        opacity: 0.9;
+        transform: scale(1.05);
+        background-color: var(--page-bg);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+      }
+
+      #header-role-request-button img {
+        width: 20px; 
+        height: 20px;
+      }
       #header-refresh-button img {
         /* Resize the new icon to fit inside the button */
         width: 20px; 
@@ -295,7 +322,10 @@
       #header-refresh-button.loading img {
         animation: spin 1s linear infinite;
       }
-      
+      #header-role-request-button.loading img {
+        animation: spin 1s linear infinite;
+      }
+
       @keyframes spin {
         0% { transform: rotate(0deg); }
         100% { transform: rotate(360deg); }
@@ -1478,6 +1508,10 @@
         <button id="header-refresh-button" title="Refresh Data" onclick="refreshCurrentData()">
           <img id="refresh-icon" src="https://cdn-icons-png.flaticon.com/512/2725/2725164.png" alt="Refresh Icon">
         </button>
+
+        <button id="header-role-request-button" title="Request Role Upgrade" onclick="showRoleRequestModal()">
+          <img id="role-request-icon" src="https://cdn1.iconfinder.com/data/icons/phishing-3/64/security_system_computer_padlock_system_lock_shield_phishing-1024.png" alt="Upgrade Icon">
+        </button>
       </div>
     </header>
 
@@ -1535,7 +1569,7 @@
         <!--      TAB 2: MY SCHEDULE PANEL      -->
         <!-- ================================== -->
         <div id="my-schedule-panel" class="tab-panel">
-          <h2>My Upcoming Schedule</h2>
+          <h2 id="my-schedule-title">My Upcoming Schedule</h2>
           <p>Your schedule for the next 7 days.</p>
           <div id="my-schedule-status" class="status-message"></div>
           <div id="my-schedule-display"></div>
@@ -1551,25 +1585,6 @@
             <div class="balance-item"><p>Sick</p><span class="balance-days" id="balance-sick">--</span></div>
             <div class="balance-item"><p>Casual</p><span class="balance-days" id="balance-casual">--</span></div>
           </div>
-          <hr class="section-divider">
-          <form id="admin-request-form" class="form-container">
-            <h2>Request Role Upgrade</h2>
-            <p class="text-color-secondary">If your supervisor is a 'Superadmin', you can request 'Admin' access. If you are an 'Admin', you can request 'Superadmin' access. Requests will be reviewed by the system owner.</p>
-            <div class="form-group">
-              <label for="admin-request-role">Role to Request</label>
-              <select id="admin-request-role">
-                <option value="admin">Admin</option>
-                <option value="superadmin">Superadmin</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label for="admin-request-justification">Justification</label>
-              <textarea id="admin-request-justification" rows="3" placeholder="Please explain why you need this role upgrade." required></textarea>
-            </div>
-            <button type="button" class="view-btn" style="background-color:var(--konecta-dark)" onclick="submitAdminRequest()">Submit Role Request</button>
-          </form>
-          <div id="admin-request-status" class="status-message"></div>
-          <hr class="section-divider">
 
           <form id="leave-form" class="form-container">
             <h2>Submit Leave Request</h2>
@@ -2026,7 +2041,7 @@
           if (toggleInput) toggleInput.checked = true; // Set checkbox state
           
           // Invert the refresh icon
-          document.querySelectorAll('#header-refresh-button img').forEach(img => {
+          document.querySelectorAll('#header-refresh-button img, #header-role-request-button img').forEach(img => {
                img.style.filter = 'invert(100%)';
           });
           
@@ -2036,7 +2051,7 @@
           if (toggleInput) toggleInput.checked = false; // Set checkbox state
 
           // Reset the refresh icon filter
-          document.querySelectorAll('#header-refresh-button img').forEach(img => {
+          document.querySelectorAll('#header-refresh-button img, #header-role-request-button img').forEach(img => {
                img.style.filter = 'none';
           });
         }
@@ -2237,6 +2252,7 @@
         document.getElementById('buttons').style.display = 'block';
         document.getElementById('other-buttons').style.display = 'block';
         document.getElementById('my-schedule-tab-button').style.display = 'inline-block';
+        document.getElementById('header-role-request-button').style.display = 'flex';
         
         if (user.myBalances) populateMyBalances(user.myBalances);
 
@@ -2296,6 +2312,7 @@
              // *** MODIFIED: Show Registration Admin tab for admin and superadmin ***
              document.getElementById('registration-admin-tab-button').style.display = 'inline-block';
           }
+          document.getElementById('my-schedule-title').innerText = "My Team's Upcoming Schedule";
 
           if (user.role === 'superadmin') {
              // *** MOVED: Announcements tab is still superadmin only ***
@@ -2310,6 +2327,7 @@
 
           document.getElementById('coaching-form-container').style.display = 'none';
           document.getElementById('coaching-list-container').querySelector('h2').innerText = 'My Coaching History';
+          
         }
         
         // Show coaching tab for everyone
@@ -2740,6 +2758,8 @@
       }
       // *** START NEW FUNCTION ***
       function submitAdminRequest() {
+        // *** Get the button at the start ***
+        const btn = document.getElementById('header-role-request-button');
         try {
           const requestedRole = document.getElementById('admin-request-role').value;
           const justification = document.getElementById('admin-request-justification').value;
@@ -2747,24 +2767,32 @@
           if (!justification || justification.trim() === "") {
             throw new Error("A justification is required to request a role upgrade.");
           }
-
+          
+          // *** Add loading class ***
+          btn.classList.add('loading');
           setStatus('admin-request-status', 'processing', 'Submitting request...');
 
           google.script.run
             .withSuccessHandler(msg => {
+              // *** Remove loading class ***
+              btn.classList.remove('loading');
               if (msg.startsWith('Error:')) {
                 setStatus('admin-request-status', 'error', msg.replace('Error: ', ''));
               } else {
-                setStatus('admin-request-status', 'success', msg);
-                document.getElementById('admin-request-form').reset();
+                // ...
+                setTimeout(hideRoleRequestModal, 2000); 
               }
             })
             .withFailureHandler(err => {
+              // *** Remove loading class ***
+              btn.classList.remove('loading');
               setStatus('admin-request-status', 'error', err.message);
             })
             .webRequestAdminAccess(justification, requestedRole);
 
         } catch (err) {
+          // *** Remove loading class (if error happens before call) ***
+          btn.classList.remove('loading');
           setStatus('admin-request-status', 'error', err.message);
         }
       }
@@ -2916,6 +2944,7 @@
           <table class="schedule-table">
             <thead>
               <tr>
+                <th>User</th>
                 <th>Date</th>
                 <th>Day</th>
                 <th>Status</th>
@@ -2950,6 +2979,7 @@
 
           html += `
             <tr class="${trClass}">
+              <td><strong>${day.userName}</strong></td>
               <td>${dateStr}</td>
               <td>${dayStr}</td>
               <td class="${statusClass}">${day.leaveType}</td>
@@ -4230,10 +4260,17 @@
           }
           // ********************************************
 
+          // *** THIS IS THE SINGLE, CORRECTED BLOCK FOR THE BADGE ***
+          let ackHtml = '';
+          if (session.agentAcknowledgementTimestamp) {
+            ackHtml = `<span class="status-badge status-approved" style="margin-left: 10px; font-size: 0.75rem; padding: 4px 8px;">Acknowledged</span>`;
+          }
+          // *** THE DUPLICATE BLOCK THAT WAS HERE IS NOW REMOVED ***
+
           html += `
             <div class="request-list-item">
               <div class="item-details">
-                <h4>${session.agentName} - ${formatDate(session.sessionDate)} (${session.weekNumber})</h4>
+                <h4>${session.agentName} - ${formatDate(session.sessionDate)} (${session.weekNumber}) ${ackHtml}</h4>
                 <p><strong>Coach:</strong> ${session.coachName}</p>
                 <p><strong>Overall Score:</strong> <strong style="color:var(--konecta-dark);">${scoreDisplay}</strong></p>
                 ${session.followUpComment ?
@@ -5050,9 +5087,26 @@
         _onConfirmCallback = null; // Clear the callback
       }
       // *** END: CUSTOM CONFIRM MODAL FUNCTIONS ***
+
+      // *** ADD THESE FUNCTIONS ***
+      function showRoleRequestModal() {
+        // Reset form status
+        setStatus('admin-request-status', '', '');
+        document.getElementById('admin-request-form').reset();
+        document.getElementById('role-request-modal-backdrop').style.display = 'block';
+        document.getElementById('role-request-modal').style.display = 'flex';
+      }
+
+      function hideRoleRequestModal() {
+        document.getElementById('role-request-modal-backdrop').style.display = 'none';
+        document.getElementById('role-request-modal').style.display = 'none';
+      }
+
+
+
       // ===================================
-// === ANNOUNCEMENTS MODULE (JS) ===
-// ===================================
+      // === ANNOUNCEMENTS MODULE (JS) ===
+      // ===================================
 
 // For users to see the banner
 function loadAnnouncements() {
@@ -5291,5 +5345,35 @@ function deleteAnnouncement(id) {
       </div>
     </div>
 
+    <div id="role-request-modal-backdrop" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7); z-index: 299;"></div>
+    <div id="role-request-modal" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 500px; background-color: var(--card-bg); border-radius: var(--radius); z-index: 300; box-shadow: var(--shadow); overflow: hidden; flex-direction: column;">
+      
+      <div style="padding: 20px 20px 15px 20px; border-bottom: 1px solid var(--border-color);">
+        <h2 style="margin: 0; font-size: 1.25rem; color: var(--konecta-blue);">Request Role Upgrade</h2>
+      </div>
+      
+      <div id="role-request-modal-body" style="padding: 20px; flex-grow: 1;">
+        <form id="admin-request-form" class="form-container" style="padding: 0; box-shadow: none; border: none; background: none;">
+          <p class="text-color-secondary">If your supervisor is a 'Superadmin', you can request 'Admin' access. If you are an 'Admin', you can request 'Superadmin' access. Requests will be reviewed by the system owner.</p>
+          <div class="form-group">
+            <label for="admin-request-role">Role to Request</label>
+            <select id="admin-request-role">
+              <option value="admin">Admin</option>
+              <option value="superadmin">Superadmin</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="admin-request-justification">Justification</label>
+            <textarea id="admin-request-justification" rows="3" placeholder="Please explain why you need this role upgrade." required></textarea>
+          </div>
+          <button type="button" class="view-btn" style="background-color:var(--konecta-dark); width: 100%; margin: 0;" onclick="submitAdminRequest()">Submit Role Request</button>
+        </form>
+        <div id="admin-request-status" class="status-message" style="margin-top: 15px;"></div>
+      </div>
+
+      <div style="padding: 15px 20px; border-top: 1px solid var(--border-color); background-color: var(--input-bg); text-align: right;">
+        <button type="button" class="view-btn" style="background-color: var(--text-color-secondary);" onclick="hideRoleRequestModal()">Close</button>
+      </div>
+    </div>
     </body>
 </html>
