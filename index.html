@@ -1664,17 +1664,13 @@
         <!--    TAB 5: SCHEDULE EDITOR PANEL    -->
         <!-- ================================== -->
         <div id="schedule-panel" class="tab-panel">
-  <form id="csv-import-form" class="form-container">
-    <h2>Bulk Schedule Importer (CSV)</h2>
-    <p class="text-color-secondary">
-  Upload a CSV file with headers: `Name`, `StartDate` (MM/dd/yyyy), `StartTime` (HH:mm), `EndDate` (MM/dd/yyyy), `EndTime` (HH:mm), `LeaveType`, `Email`.
-  <br>
-  <strong>Note:</strong> Leave `LeaveType` blank for a "Day Off". To schedule a shift, set `LeaveType` to "Present" and provide times.
-</p>
-    <div class="form-group">
-<label for="csv-file-input">Select CSV File</label>
-      <input type="file" id="csv-file-input" accept=".csv">
-    </div>
+          <form id="csv-import-form" class="form-container">
+            <h2>Bulk Schedule Importer (CSV)</h2>
+            <p class="text-color-secondary">Upload a CSV file with headers: `Name`, `Date` (MM/dd/yyyy), `StartTime` (HH:mm), `EndTime` (HH:mm), `LeaveType`, `Email`</p>
+            <div class="form-group">
+              <label for="csv-file-input">Select CSV File</label>
+              <input type="file" id="csv-file-input" accept=".csv">
+            </div>
             <button type="button" style="background-color:var(--konecta-dark)" onclick="importScheduleCSV()">Import CSV</button>
           </form>
           <div id="csv-import-status" class="status-message"></div>
@@ -1682,31 +1678,13 @@
           <hr class="section-divider">
           
           <form id="schedule-form" class="form-container">
-  <h2>Manual Schedule Editor</h2>
-  <div class="form-group"><label for="schedule-agent-select">User</label><select id="schedule-agent-select"></select></div>
-  <div class="form-row">
-    <div class="form-group"><label for="schedule-start-date">Shift Start Date</label><input type="date" id="schedule-start-date" required></div>
-    
-    <div class="form-group">
-      <label for="schedule-end-date">Shift End Date</label>
-      <input type="date" id="schedule-end-date">
-      <small>The date the shift ends (e.g., next day for overnight shifts). Leave blank if shift ends on the same day.</small>
-    </div>
-  </div>
-  <div class="form-group"><label for="schedule-leave-type">Leave Type / Status</label>
-  <select id="schedule-leave-type" onchange="toggleTimeFields()">
-    
-    <option value="Present">Present (Shift)</option>
-    
-    <option value="">Day Off (No Shift)</option>
-    
-    <option value="Sick">Sick</option>
-    <option value="Annual">Annual</option>
-    <option value="Casual">Casual</option>
-    <option value="Absent">Absent</option>
-    
-    </select>
-</div>
+            <h2>Manual Schedule Editor</h2>
+            <div class="form-group"><label for="schedule-agent-select">User</label><select id="schedule-agent-select"></select></div>
+            <div class="form-row">
+              <div class="form-group"><label for="schedule-start-date">Start Date</label><input type="date" id="schedule-start-date" required></div>
+              <div class="form-group"><label for="schedule-end-date">End Date (Optional)</label><input type="date" id="schedule-end-date"><small>Leave blank to submit for a single day.</small></div>
+            </div>
+            <div class="form-group"><label for="schedule-leave-type">Leave Type / Status</label><select id="schedule-leave-type" onchange="toggleTimeFields()"><option value="Present">Present</option><option value="Sick">Sick</option><option value="Annual">Annual</option><option value="Casual">Casual</option><option value="Absent">Absent</option></select></div>
             <div id="time-fields" class="form-row">
               <div class="form-group"><label for="schedule-start-time">Shift Start Time</label><input type="time" id="schedule-start-time"></div>
               <div class="form-group"><label for="schedule-end-time">Shift End Time</label><input type="time" id="schedule-end-time"></div>
@@ -2575,54 +2553,50 @@
       }
       
       function submitSchedule() {
-  try {
-    const userEmail = document.getElementById('schedule-agent-select').value;
-    const user = allUsersList.find(u => u.email === userEmail);
-if (!user) throw new Error("Please select a user."); 
-    
-    let startDate = document.getElementById('schedule-start-date').value;
-    let endDate = document.getElementById('schedule-end-date').value;
-const leaveType = document.getElementById('schedule-leave-type').value;
-    let startTime = document.getElementById('schedule-start-time').value;
-    let endTime = document.getElementById('schedule-end-time').value;
-    
-if (!startDate) throw new Error("Please select a Shift Start Date.");
-    
-    // MODIFIED: Default end date to start date if blank
-    if (!endDate) endDate = startDate;
-    
-    if (new Date(endDate) < new Date(startDate)) throw new Error("End Date cannot be before Start Date.");
-    
-    if (leaveType === 'Present') {
-      if (!startTime || !endTime) throw new Error("Shift Start and End Time are required for 'Present' status.");
-    } else {
-startTime = "";
-      endTime = "";
-    }
-    
-setStatus('schedule-status', 'processing', `Submitting schedule for ${user.name}...`);
+        try {
+          const userEmail = document.getElementById('schedule-agent-select').value;
+          const user = allUsersList.find(u => u.email === userEmail);
+          if (!user) throw new Error("Please select a user."); 
+          
+          let startDate = document.getElementById('schedule-start-date').value;
+          let endDate = document.getElementById('schedule-end-date').value;
+          const leaveType = document.getElementById('schedule-leave-type').value;
+          let startTime = document.getElementById('schedule-start-time').value;
+          let endTime = document.getElementById('schedule-end-time').value;
+          
+          if (!startDate) throw new Error("Please select a Start Date.");
+          if (!endDate) endDate = startDate;
+          if (new Date(endDate) < new Date(startDate)) throw new Error("End Date cannot be before Start Date.");
+          
+          if (leaveType === 'Present') {
+            if (!startTime || !endTime) throw new Error("Shift Start and End Time are required for 'Present' status.");
+          } else {
+            startTime = "";
+            endTime = "";
+          }
+          
+          setStatus('schedule-status', 'processing', `Submitting schedule for ${user.name}...`);
 
-    google.script.run
-      .withSuccessHandler(msg => {
-        if (msg.startsWith('Error:')) {
-setStatus('schedule-status', 'error', msg.replace('Error: ', ''));
-        } else {
-          setStatus('schedule-status', 'success', msg);
-document.getElementById('schedule-form').reset();
-          document.getElementById('schedule-start-date').valueAsDate = new Date();
-          toggleTimeFields();
+          google.script.run
+            .withSuccessHandler(msg => {
+              if (msg.startsWith('Error:')) {
+                setStatus('schedule-status', 'error', msg.replace('Error: ', ''));
+              } else {
+                setStatus('schedule-status', 'success', msg);
+                document.getElementById('schedule-form').reset();
+                document.getElementById('schedule-start-date').valueAsDate = new Date();
+                toggleTimeFields();
+              }
+            })
+            .withFailureHandler(err => {
+              setStatus('schedule-status', 'error', 'Unexpected error: ' + (err.message || JSON.stringify(err)));
+            })
+            .webSubmitScheduleRange(user.email, user.name, startDate, endDate, startTime, endTime, leaveType); 
+
+        } catch (err) {
+          setStatus('schedule-status', 'error', err.message);
         }
-      })
-      .withFailureHandler(err => {
-setStatus('schedule-status', 'error', 'Unexpected error: ' + (err.message || JSON.stringify(err)));
-      })
-      // MODIFIED: Call renamed function with new parameters
-      .webSubmitSchedule(user.email, user.name, startDate, endDate, startTime, endTime, leaveType); 
-
-  } catch (err) {
-setStatus('schedule-status', 'error', err.message);
-  }
-}
+      }
       
       // --- Helper to format date strings ---
       function formatDate(dateStr) {
@@ -5040,39 +5014,41 @@ setStatus('schedule-status', 'error', err.message);
        * Called by superadmin clicking the "Registration Admin" tab.
        */
       function loadRegistrationAdmin() {
-  setStatus('registration-admin-status', 'processing', 'Loading pending registrations...');
-  const listDiv = document.getElementById('registration-admin-list');
-  listDiv.innerHTML = '';
+        setStatus('registration-admin-status', 'processing', 'Loading pending registrations...');
+        const listDiv = document.getElementById('registration-admin-list');
+        listDiv.innerHTML = '';
 
-  google.script.run
-    .withSuccessHandler(requests => {
-      // ... (error/empty checks are the same) ...
-      
-      setStatus('registration-admin-status', 'success', `Loaded ${requests.length} pending requests.`);
-      let html = '';
-      requests.forEach(req => {
-        html += `
-          <div class="request-list-item">
-            <div class="item-details">
-              <h4>${req.userName}</h4>
-              <p><strong>Email:</strong> ${req.userEmail}</p>
-              <p><strong>Selected Supervisor:</strong> ${req.supervisorName}</p>
-              <p class="text-color-secondary"><strong>Submitted:</strong> ${formatDate(req.timestamp)}</p>
-
-              <div class="form-group" style="margin-top: 15px; margin-bottom: 0;">
-                <label for="hiring-date-${req.requestID}" style="color: var(--konecta-blue); font-weight: 600;">Hiring Date (Required)</label>
-                <input type="date" id="hiring-date-${req.requestID}" style="background-color: var(--card-bg); padding: 8px;">
-              </div>
-              </div>
-            <div class="item-actions">
-              <button class="approve-btn" onclick="approveDenyRegistration('${req.requestID}', '${req.userEmail}', '${req.selectedSupervisorEmail}', 'Approved')">Approve</button>
-              <button class="deny-btn" onclick="approveDenyRegistration('${req.requestID}', '${req.userEmail}', '${req.selectedSupervisorEmail}', 'Denied')">Deny</button>
-            </div>
-          </div>
-        `;
-      });
-      listDiv.innerHTML = html;
-    })
+        google.script.run
+          .withSuccessHandler(requests => {
+            if (requests.error) {
+              setStatus('registration-admin-status', 'error', requests.error);
+              return;
+            }
+            if (requests.length === 0) {
+              setStatus('registration-admin-status', 'success', 'No new user registrations are pending.');
+              return;
+            }
+            
+            setStatus('registration-admin-status', 'success', `Loaded ${requests.length} pending requests.`);
+            let html = '';
+            requests.forEach(req => {
+              html += `
+                <div class="request-list-item">
+                  <div class="item-details">
+                    <h4>${req.userName}</h4>
+                    <p><strong>Email:</strong> ${req.userEmail}</p>
+                    <p><strong>Selected Supervisor:</strong> ${req.supervisorName}</p>
+                    <p class="text-color-secondary"><strong>Submitted:</strong> ${formatDate(req.timestamp)}</p>
+                  </div>
+                  <div class="item-actions">
+                    <button class="approve-btn" onclick="approveDenyRegistration('${req.requestID}', '${req.userEmail}', '${req.selectedSupervisorEmail}', 'Approved')">Approve</button>
+                    <button class="deny-btn" onclick="approveDenyRegistration('${req.requestID}', '${req.userEmail}', '${req.selectedSupervisorEmail}', 'Denied')">Deny</button>
+                  </div>
+                </div>
+              `;
+            });
+            listDiv.innerHTML = html;
+          })
           .withFailureHandler(err => {
             setStatus('registration-admin-status', 'error', err.message);
           })
@@ -5080,37 +5056,24 @@ setStatus('schedule-status', 'error', err.message);
       }
 
       function approveDenyRegistration(requestID, userEmail, supervisorEmail, newStatus) {
-  
-  // *** NEW: Get Hiring Date if approving ***
-  let hiringDateStr = null;
-  if (newStatus === 'Approved') {
-    const dateInput = document.getElementById('hiring-date-' + requestID);
-    if (!dateInput || !dateInput.value) {
-      setStatus('registration-admin-status', 'error', 'Please enter a Hiring Date to approve this user.');
-      return; // Stop execution
-    }
-    hiringDateStr = dateInput.value;
-  }
-  // *** END NEW ***
-  
-  const runAction = () => {
-    setStatus('registration-admin-status', 'processing', `Processing ${newStatus} for ${userEmail}...`);
+        // This is the main function that will be called by the onConfirm callback
+        const runAction = () => {
+          setStatus('registration-admin-status', 'processing', `Processing ${newStatus} for ${userEmail}...`);
 
-    google.script.run
-      .withSuccessHandler(result => {
-        if (result.error) {
-          setStatus('registration-admin-status', 'error', result.error);
-        } else {
-          setStatus('registration-admin-status', 'success', result.message);
-          loadRegistrationAdmin(); // Refresh the list
-        }
-      })
-      .withFailureHandler(err => {
-        setStatus('registration-admin-status', 'error', err.message);
-      })
-      // MODIFIED: Pass hiringDateStr (it will be null if 'Denied')
-      .webApproveDenyRegistration(requestID, userEmail, supervisorEmail, newStatus, hiringDateStr);
-  };
+          google.script.run
+            .withSuccessHandler(result => {
+              if (result.error) {
+                setStatus('registration-admin-status', 'error', result.error);
+              } else {
+                setStatus('registration-admin-status', 'success', result.message);
+                loadRegistrationAdmin(); // Refresh the list
+              }
+            })
+            .withFailureHandler(err => {
+              setStatus('registration-admin-status', 'error', err.message);
+            })
+            .webApproveDenyRegistration(requestID, userEmail, supervisorEmail, newStatus);
+        };
 
         if (newStatus === 'Denied') {
           // Show the custom prompt
@@ -5469,7 +5432,7 @@ function deleteAnnouncement(id) {
     <div id="supervisor-modal" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 500px; background-color: var(--card-bg); border-radius: var(--radius); z-index: 300; box-shadow: var(--shadow); overflow: hidden; flex-direction: column;">
       
       <div style="padding: 20px 20px 15px 20px; border-bottom: 1px solid var(--border-color);">
-        <h2 style="margin: 0; font-size: 1.25rem; color: var(--konecta-blue);">Welcome to KAP!</h2>
+        <h2 style="margin: 0; font-size: 1.25rem; color: var(--konecta-blue);">Welcome to KOMPASS !</h2>
       </div>
       
       <div style="padding: 20px; flex-grow: 1;">
